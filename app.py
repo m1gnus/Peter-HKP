@@ -33,53 +33,30 @@ def key_lookup():
     fingerprint = request.args.get("fingerprint", "").casefold() == "on"
     exact = request.args.get("exact", "").casefold() == "on"
 
-    if op == "get":
-        result = None
+    results = []
 
-        if search.startswith(KEY_ID_PREFIX):
-            search = search.lstrip("0x")
-            s_length = len(search)
+    if search.startswith(KEY_ID_PREFIX):
+        search = search.lstrip("0x")
+        s_length = len(search)
 
-            if s_length not in ACCEPTED_KEY_ID_LENGTH:
-                return "", 400
+        if s_length not in ACCEPTED_KEY_ID_LENGTH:
+            return "", 400
 
-            # search by keyid or fingerprint?
-            keyid = s_length in (8, 16)
-            for key in gpg.list_keys():
-                if key.get("keyid").casefold().startswith(search):
-                    result = key
-                    break
+        # search by keyid or fingerprint?
+        keyid = s_length in (8, 16)
+        for key in gpg.list_keys():
+            if key.get("keyid" if keyid else "fingerprint").casefold().startswith(search):
+                results.append(key)
 
-        else:
-            # Implement text search
-            for key in gpg.list_keys():
-                if any(search in uid for uid in key.get("uids")):
-                    result = key
+    else:
+        for key in gpg.list_keys():
+            if any(search in uid for uid in key.get("uids")):
+                results.append(key)
 
-        if result:
-            response =  make_response(f"\n{gpg.export_keys(result.get('keyid'))}\n", 200)
-            response.headers['Content-Type'] = "application/pgp-keys"
-            return response
-
+    if not results:
         return "", 404
 
-    elif op == "index":
-        results = []
-
-        if search.startswith(KEY_ID_PREFIX):
-            search = search.lstrip("0x")
-            for key in gpg.list_keys():
-                if any(search in target for target in (key.keyid, key.fingerprint)):
-                    results.append(key)
-
-        else:
-            for key in gpg.list_keys():
-                if any(search in uid for uid in key.get("uids")):
-                    results.append(key)
-
-        if not results:
-            return "", 404
-
+    if op == "index":
         result = f"info:1:{len(results)}\n"
         for res in results:
             result += f"pub:{res.get('keyid')}:{res.get('algo')}:{res.get('date')}:{res.get('expires')}"
@@ -93,6 +70,11 @@ def key_lookup():
                 result += "\n"
 
         return result, 200
+
+    elif op == "get":
+        response =  make_response(f"\n{gpg.export_keys([res.get('keyid') for res in results])}\n", 200)
+        response.headers['Content-Type'] = "application/pgp-keys"
+        return response
 
     elif op == "vindex":
         return "", 501
